@@ -1,0 +1,57 @@
+{
+  "source_repository": "https://github.com/betuldanismaz/Network_Anomaly_Detection",
+  "source_license": "MIT",
+  "model_type": "RandomForest_3Class",
+  "model_version": "betuldanismaz-rf-3class-2026-03-02",
+  "training_date_reported": "2026-03-02",
+  "dataset": "CICIDS2017",
+  "classification": "3-class network-flow classification",
+  "classes": {
+    "0": "Benign",
+    "1": "Volumetric",
+    "2": "Semantic"
+  },
+  "feature_count": 20,
+  "feature_names": [
+    "Bwd Packet Length Std",
+    "Bwd Packet Length Mean",
+    "Packet Length Std",
+    "Packet Length Variance",
+    "Bwd Packet Length Max",
+    "Subflow Bwd Bytes",
+    "Avg Bwd Segment Size",
+    "Packet Length Mean",
+    "Average Packet Size",
+    "Max Packet Length",
+    "Total Length of Bwd Packets",
+    "Fwd IAT Std",
+    "Total Fwd Packets",
+    "Total Backward Packets",
+    "Bwd Packets/s",
+    "Idle Min",
+    "Fwd IAT Mean",
+    "Subflow Fwd Packets",
+    "Total Length of Fwd Packets",
+    "Fwd IAT Max"
+  ],
+  "reported_test_metrics": {
+    "accuracy": 0.9734,
+    "macro_precision": 0.9443,
+    "macro_recall": 0.9778,
+    "macro_f1": 0.9591,
+    "macro_roc_auc": 0.9983,
+    "test_samples": 283078
+  },
+  "artifacts": {
+    "rf_3class_model.pkl": {
+      "sha256": "35287335aefad3fcee9779fbcfb22daf2e8c9d5edfd826b712060acd40c7ef7b",
+      "size_bytes": 16990577,
+      "url": "https://media.githubusercontent.com/media/betuldanismaz/Network_Anomaly_Detection/main/models/rf_3class_model.pkl"
+    },
+    "scaler_ml_3class.pkl": {
+      "sha256": "0bbf1565be27b5bdb90fa595ec53089c052fc14cfe76360cafcc910580fb0958",
+      "size_bytes": 1463,
+      "url": "https://media.githubusercontent.com/media/betuldanismaz/Network_Anomaly_Detection/main/models/scaler_ml_3class.pkl"
+    }
+  }
+}

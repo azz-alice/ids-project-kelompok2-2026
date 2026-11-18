@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="id" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>IDS</title>
+  <script>
+    (() => {
+      let saved = null;
+      try { saved = localStorage.getItem("ids-theme"); } catch {}
+      const preferred = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.dataset.theme = saved === "dark" || saved === "light" ? saved : preferred;
+    })();
+  </script>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+  <div class="aplikasi">
+    <header class="bilah-atas">
+      <button class="tombol-ikon" id="tombol-menu" type="button" aria-label="Buka menu" aria-expanded="false" aria-controls="menu-samping">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="bilah-kanan">
+        <span class="status-koneksi" id="status-koneksi" data-state="waiting">Menghubungkan</span>
+        <button class="tombol-ikon" id="theme-toggle" type="button" aria-label="Ganti ke tema gelap" title="Ganti ke tema gelap">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle class="tema-cincin" cx="12" cy="12" r="8.25" />
+            <path class="tema-separuh" d="M12 3.75a8.25 8.25 0 0 0 0 16.5z" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="latar-menu" id="latar-menu"></div>
+    <aside class="menu-samping" id="menu-samping" aria-label="Navigasi" aria-hidden="true" inert>
+      <nav class="menu-daftar">
+        <button class="menu-item" type="button" data-halaman="live">Live Traffic</button>
+        <button class="menu-item" type="button" data-halaman="pengunjung">Pengunjung</button>
+        <button class="menu-item" type="button" data-halaman="deteksi">Detection</button>
+        <button class="menu-item" type="button" data-halaman="alert">Alerts</button>
+        <button class="menu-item" type="button" data-halaman="log">Logs</button>
+        <button class="menu-item" type="button" data-halaman="investigasi">Investigation</button>
+        <button class="menu-item" type="button" data-halaman="analisis">Traffic Analysis</button>
+        <button class="menu-item" type="button" data-halaman="baseline">Baseline</button>
+        <button class="menu-item" type="button" data-halaman="intel">Threat Intelligence</button>
+        <button class="menu-item" type="button" data-halaman="kesehatan">System Health</button>
+        <button class="menu-item" type="button" data-halaman="kontrol">System Control</button>
+      </nav>
+    </aside>
+
+    <main class="isi">
+      <section class="halaman halaman-live aktif" data-view="live">
+        <div class="baris-grafik">
+          <article class="panel panel-grafik">
+            <header class="panel-kepala">
+              <h2>Traffic per detik</h2>
+              <div class="panel-kontrol">
+                <span class="kondisi" id="kondisi-traffic" data-state="waiting_for_data">Menunggu traffic</span>
+                <select id="metrik-grafik" aria-label="Jenis data grafik">
+                  <option value="request">Request per detik</option>
+                  <option value="paket">Paket per detik</option>
+                  <option value="byte">Byte per detik</option>
+                </select>
+              </div>
+            </header>
+            <div class="grafik-kotak" id="grafik-kotak">
+              <canvas id="grafik" role="img" aria-label="Grafik garis traffic per detik"></canvas>
+              <div class="grafik-kosong" id="grafik-kosong" hidden></div>
+              <div class="tooltip-grafik" id="tooltip-grafik" hidden></div>
+            </div>
+            <div class="legenda" id="legenda-grafik"></div>
+          </article>
+
+          <article class="panel panel-deteksi" id="panel-deteksi" hidden>
+            <header class="panel-kepala">
+              <h2>Deteksi terbaru</h2>
+              <button class="tombol-teks" id="lihat-deteksi" type="button">Lihat semua</button>
+            </header>
+            <ul class="deteksi-ringkas" id="deteksi-ringkas"></ul>
+          </article>
+        </div>
+
+        <article class="panel panel-tabel">
+          <header class="panel-kepala">
+            <h2>Live Traffic</h2>
+            <div class="panel-kontrol">
+              <input id="cari-ip" type="search" placeholder="Cari IP" aria-label="Cari alamat IP" autocomplete="off">
+              <select id="filter-protocol" aria-label="Filter protocol">
+                <option value="all">Semua protocol</option>
+                <option value="TCP">TCP</option>
+                <option value="UDP">UDP</option>
+                <option value="ICMP">ICMP</option>
+                <option value="ARP">ARP</option>
+                <option value="HTTP">HTTP</option>
+                <option value="OTHER">Lainnya</option>
+              </select>
+              <select id="filter-sumber" aria-label="Filter sumber data">
+                <option value="all">Semua sumber</option>
+                <option value="packet">Packet capture</option>
+                <option value="aplikasi">Application event</option>
+                <option value="pengunjung">Application event pengunjung</option>
+                <option value="internal">Application event internal</option>
+              </select>
+              <span class="jumlah" id="jumlah-baris">0 baris</span>
+            </div>
+          </header>
+          <div class="tabel-gulir" id="tabel-gulir">
+            <table class="tabel" id="tabel-traffic">
+              <thead>
+                <tr>
+                  <th class="kol-waktu">Timestamp</th>
+                  <th class="kol-ip">Source IP</th>
+                  <th class="kol-ip">Destination IP</th>
+                  <th class="kol-port">Src Port</th>
+                  <th class="kol-port">Dst Port</th>
+                  <th class="kol-protocol">Protocol</th>
+                  <th class="kol-angka">Length</th>
+                  <th class="kol-method">Method</th>
+                  <th class="kol-path">Path</th>
+                  <th class="kol-status">Status</th>
+                  <th class="kol-sumber">Source Type</th>
+                </tr>
+              </thead>
+              <tbody id="isi-tabel-traffic"></tbody>
+            </table>
+            <div class="tabel-kosong" id="tabel-kosong">Menunggu packet capture dan application event.</div>
+          </div>
+          <div class="detail-baris" id="detail-baris" hidden>
+            <div class="detail-kepala">
+              <strong>Detail baris</strong>
+              <button class="tombol-teks" id="tutup-detail" type="button">Tutup</button>
+            </div>
+            <dl class="detail-isi" id="detail-isi"></dl>
+          </div>
+        </article>
+      </section>
+
+      <section class="halaman halaman-gulir" data-view="pengunjung" hidden>
+        <h1>Pengunjung</h1>
+        <article class="panel panel-penuh">
+          <header class="panel-kepala">
+            <h2>Sesi aktif</h2>
+            <div class="panel-kontrol">
+              <input id="cari-pengunjung" type="search" placeholder="Cari ticket atau IP" aria-label="Cari pengunjung" autocomplete="off">
+              <span class="jumlah" id="jumlah-pengunjung">0 sesi</span>
+            </div>
+          </header>
+          <div class="tabel-gulir">
+            <table class="tabel">
+              <thead><tr><th>Ticket</th><th>Alamat IP</th><th>Mulai</th><th>Kedaluwarsa</th><th>Sisa waktu</th><th>Status</th></tr></thead>
+              <tbody id="isi-pengunjung"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="halaman halaman-gulir" data-view="deteksi" hidden>
+        <h1>Detection</h1>
+        <div class="dua-kolom">
+          <article class="panel panel-penuh">
+            <header class="panel-kepala"><h2>Riwayat deteksi</h2><span class="jumlah" id="jumlah-deteksi">0 event</span></header>
+            <div class="tabel-gulir">
+              <table class="tabel">
+                <thead><tr><th>Waktu</th><th>Kondisi</th><th>Aturan</th><th>Ticket</th><th class="kol-angka">Nilai</th></tr></thead>
+                <tbody id="isi-deteksi"></tbody>
+              </table>
+            </div>
+          </article>
+          <article class="panel panel-penuh">
+            <header class="panel-kepala"><h2>Sumber data deteksi</h2></header>
+            <div class="bukti" id="bukti-deteksi"><p class="kosong">Pilih deteksi untuk melihat data yang menjadi dasarnya.</p></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="halaman halaman-gulir" data-view="alert" hidden>
+        <h1>Alerts</h1>
+        <article class="panel panel-penuh">
+          <header class="panel-kepala"><h2>Daftar alert</h2><span class="jumlah" id="jumlah-alert">0 alert</span></header>
+          <div class="daftar-kartu" id="daftar-alert"></div>
+        </article>
+      </section>
+
+      <section class="halaman halaman-gulir" data-view="log" hidden>
+        <h1>Logs</h1>
+        <div class="dua-baris">
+          <article class="panel panel-penuh">
+            <header class="panel-kepala"><h2>Application event</h2></header>
+            <div class="tabel-gulir">
+              <table class="tabel">
+                <thead><tr><th>Waktu</th><th>Sumber</th><th>Method</th><th>Path</th><th>Status</th><th>IP klien</th><th class="kol-angka">Request</th><th class="kol-angka">Response</th></tr></thead>
+                <tbody id="isi-log-aplikasi"></tbody>
+              </table>
+            </div>
+          </article>
+          <article class="panel panel-penuh">
+            <header class="panel-kepala"><h2>System log</h2></header>
+            <div class="tabel-gulir">
+              <table class="tabel">
+                <thead><tr><th>Waktu</th><th>Level</th><th>Komponen</th><th>Event</th><th>Pesan</th></tr></thead>
+                <tbody id="isi-log-sistem"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="halaman halaman-gulir" data-view="investigasi" hidden>
+        <h1>Investigation</h1>
+        <article class="panel panel-penuh">
+          <header class="panel-kepala"><h2>Daftar investigasi</h2><span class="jumlah" id="jumlah-insiden">0 insiden</span></header>
+          <div class="daftar-kartu" id="daftar-insiden"></div>
+        </article>
+      </section>
+
+      <section class="halaman halaman-gulir" data-view="analisis" hidden>
+        <h1>Traffic Analysis</h1>
+        <article class="panel panel-penuh">
+          <header class="panel-kepala"><h2>Window analisis terakhir</h2><span class="jumlah" id="waktu-window">Belum ada window</span></header>
+          <div class="tabel-gulir">
+            <table class="tabel">
+              <thead><tr><th>Pengukuran</th><th>Sumber data</th><th class="kol-angka">Nilai</th></tr></thead>
+              <tbody id="isi-analisis"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="halaman halaman-gulir" data-view="baseline" hidden>
+        <h1>Baseline</h1>
+        <article class="panel panel-penuh">
+          <header class="panel-kepala"><h2>Baseline traffic internal</h2><span class="jumlah" id="status-baseline">Mengumpulkan</span></header>
+          <div class="tabel-gulir">
+            <table class="tabel">
+              <thead><tr><th>Pengukuran</th><th class="kol-angka">Baseline</th><th class="kol-angka">Window terakhir</th></tr></thead>
+              <tbody id="isi-baseline"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="halaman halaman-gulir" data-view="intel" hidden>
+        <h1>Threat Intelligence</h1>
+        <article class="panel panel-penuh">
+          <header class="panel-kepala"><h2>Pemeriksaan alamat IP</h2></header>
+          <form class="form-baris" id="form-intel">
+            <input id="input-intel" type="text" placeholder="Contoh: 8.8.8.8" aria-label="Alamat IP" autocomplete="off">
+            <button class="tombol-utama" id="periksa-intel" type="submit">Periksa IP</button>
+          </form>
+          <p class="hasil-teks" id="hasil-intel" aria-live="polite">Memeriksa konfigurasi.</p>
+        </article>
+      </section>
+
+      <section class="halaman halaman-gulir" data-view="kesehatan" hidden>
+        <h1>System Health</h1>
+        <article class="panel panel-penuh">
+          <header class="panel-kepala"><h2>Status layanan</h2></header>
+          <div class="tabel-gulir">
+            <table class="tabel">
+              <thead><tr><th>Layanan</th><th>Status</th><th>Keterangan</th></tr></thead>
+              <tbody id="isi-kesehatan"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="halaman halaman-gulir" data-view="kontrol" hidden>
+        <h1>System Control</h1>
+        <article class="panel panel-penuh">
+          <header class="panel-kepala"><h2>Network sensor</h2><span class="jumlah" id="status-sensor">Belum diketahui</span></header>
+          <div class="form-kontrol">
+            <label for="pilih-interface">Interface capture</label>
+            <select id="pilih-interface" aria-label="Pilih interface capture"><option value="">Memuat interface</option></select>
+            <div class="tombol-baris">
+              <button class="tombol-utama" id="mulai-sensor" type="button">Mulai sensor</button>
+              <button class="tombol-sekunder" id="hentikan-sensor" type="button">Hentikan sensor</button>
+            </div>
+            <p class="hasil-teks" id="pesan-sensor" role="status" aria-live="polite">Sensor belum dimulai.</p>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="/assets/js/app.js"></script>
+</body>
+</html>
