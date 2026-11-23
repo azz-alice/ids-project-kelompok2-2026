@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import secrets
 from typing import Any, Mapping
 
@@ -13,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 HEADER_KUNCI = "x-ids-internal-key"
 HOST_LOOPBACK = {"127.0.0.1", "::1"}
+PAYLOAD_PILIHAN = (64, 128, 256, 512, 1024, 1500, 2048)
+ACTION_PILIHAN = ("heartbeat", "metric_sync", "probe", "telemetry_ping")
+POLA_VARIASI = (2, 4, 1, 5, 3)
 
 
 class PembangkitBaseline:
@@ -49,35 +53,60 @@ class PembangkitBaseline:
 
     async def _jalankan(self, port: int) -> None:
         loop = asyncio.get_running_loop()
-        interval = 1.0 / max(0.1, settings.internal_baseline_rate)
-        padding = "x" * max(0, settings.internal_baseline_payload_bytes)
         urutan = 0
+        indeks_pola = 0
         async with httpx.AsyncClient(
             base_url=f"http://127.0.0.1:{port}",
             timeout=2.0,
             trust_env=False,
             headers={HEADER_KUNCI: self.kunci},
         ) as client:
-            jadwal = loop.time() + interval
+            target_awal = loop.time()
             while True:
-                urutan += 1
-                try:
-                    response = await client.post(INTERNAL_BASELINE_PATH, json={"seq": urutan, "payload": padding})
-                    if response.status_code == 200:
-                        self.berhasil += 1
-                    else:
+                jumlah_detik_ini = POLA_VARIASI[indeks_pola % len(POLA_VARIASI)]
+                indeks_pola += 1
+
+                bobot = [random.uniform(0.5, 1.5) for _ in range(jumlah_detik_ini)]
+                total_bobot = sum(bobot)
+                jeda_list = [round(b / total_bobot, 4) for b in bobot]
+
+                for jeda in jeda_list:
+                    target_awal += jeda
+                    sisa_tidur = target_awal - loop.time()
+                    if sisa_tidur > 0:
+                        await asyncio.sleep(sisa_tidur)
+                    elif sisa_tidur < -1.0:
+                        target_awal = loop.time()
+
+                    urutan += 1
+                    ukuran = random.choice(PAYLOAD_PILIHAN)
+                    aksi = random.choice(ACTION_PILIHAN)
+                    metode = "POST" if (urutan % 3 != 0) else "GET"
+                    try:
+                        if metode == "POST":
+                            response = await client.post(
+                                INTERNAL_BASELINE_PATH,
+                                json={
+                                    "seq": urutan,
+                                    "action": aksi,
+                                    "payload": "b" * ukuran,
+                                    "meta": {"proto": "HTTP/1.1", "source": "system_baseline"},
+                                },
+                            )
+                        else:
+                            response = await client.get(
+                                INTERNAL_BASELINE_PATH,
+                                params={"seq": urutan, "action": aksi, "size": ukuran},
+                            )
+                        if response.status_code == 200:
+                            self.berhasil += 1
+                        else:
+                            self.gagal += 1
+                    except httpx.HTTPError:
                         self.gagal += 1
-                except httpx.HTTPError:
-                    self.gagal += 1
-                except Exception:
-                    logger.exception("Pembangkit baseline internal gagal mengirim request")
-                    self.gagal += 1
-                jadwal += interval
-                jeda = jadwal - loop.time()
-                if jeda < -1.0:
-                    jadwal = loop.time() + interval
-                    jeda = interval
-                await asyncio.sleep(max(0.0, jeda))
+                    except Exception:
+                        logger.exception("Pembangkit baseline internal gagal mengirim request")
+                        self.gagal += 1
 
     def ringkasan(self) -> dict[str, Any]:
         return {"aktif": self.aktif, "berhasil": self.berhasil, "gagal": self.gagal}

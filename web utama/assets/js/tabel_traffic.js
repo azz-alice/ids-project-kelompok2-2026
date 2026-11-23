@@ -27,6 +27,7 @@ export class TabelTraffic {
     this.baris = [];
     this.kunciSet = new Set();
     this.kunciDipilih = null;
+    this._renderPending = false;
 
     this._ikatPeristiwa();
   }
@@ -58,7 +59,7 @@ export class TabelTraffic {
     }
     this.baris = unik;
     this.kunciSet = dilihat;
-    this.render();
+    this._jadwalkanRender();
   }
 
   tambahPacket(data) {
@@ -71,6 +72,15 @@ export class TabelTraffic {
     this._sisipkanDepan(dariAplikasi(data));
   }
 
+  _jadwalkanRender() {
+    if (this._renderPending) return;
+    this._renderPending = true;
+    requestAnimationFrame(() => {
+      this._renderPending = false;
+      this.render();
+    });
+  }
+
   _sisipkanDepan(item) {
     if (this.kunciSet.has(item.kunci)) return;
     this.kunciSet.add(item.kunci);
@@ -79,7 +89,7 @@ export class TabelTraffic {
       const dihapus = this.baris.pop();
       if (dihapus) this.kunciSet.delete(dihapus.kunci);
     }
-    this.render();
+    this._jadwalkanRender();
   }
 
   _saring() {
@@ -110,7 +120,7 @@ export class TabelTraffic {
   }
 
   render() {
-    if (!this.tbody) return;
+    if (!this.tbody || this.tbody.offsetParent === null) return;
     const hasil = this._saring();
     if (this.jumlahEl) {
       this.jumlahEl.textContent = hasil.length === this.baris.length

@@ -151,8 +151,7 @@ async def dashboard_stream(websocket: WebSocket) -> None:
             for event in events:
                 await websocket.send_json(event)
                 last_event_id = int(event["event_id"])
-            if not events:
-                await asyncio.sleep(0.5)
+            await asyncio.sleep(0.15)
     except WebSocketDisconnect:
         pass
     except Exception:

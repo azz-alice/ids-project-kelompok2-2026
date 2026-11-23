@@ -10,6 +10,26 @@ from app.modules.telemetry_pipeline import telemetry_pipeline
 
 logger = logging.getLogger(__name__)
 
+TRUSTED_PROXIES = {"127.0.0.1", "::1", "localhost"}
+
+
+def _ekstrak_ip_klien(direct_ip: str | None, headers: dict[str, str]) -> str | None:
+    if not direct_ip:
+        return None
+    if direct_ip in TRUSTED_PROXIES:
+        xff = headers.get("x-forwarded-for")
+        if xff:
+            bagian = [ip.strip() for ip in xff.split(",") if ip.strip()]
+            for ip in reversed(bagian):
+                if ip not in TRUSTED_PROXIES:
+                    return ip
+            if bagian:
+                return bagian[0]
+        x_real_ip = headers.get("x-real-ip")
+        if x_real_ip and x_real_ip.strip():
+            return x_real_ip.strip()
+    return direct_ip
+
 
 class ApplicationEventMiddleware:
     def __init__(self, app: Callable[..., Any]) -> None:
@@ -28,15 +48,17 @@ class ApplicationEventMiddleware:
             session_token = headers.get("x-ids-session-token")
         activity_id = headers.get("x-ids-activity-id")
         client = scope.get("client")
-        client_ip = client[0] if client else None
+        direct_client_ip = client[0] if client else None
         client_port = client[1] if client and len(client) > 1 else None
+        client_ip = _ekstrak_ip_klien(direct_client_ip, headers)
+
         server = scope.get("server")
         server_ip = server[0] if server else None
         server_port = server[1] if server and len(server) > 1 else None
         path = str(scope.get("path", "/"))
         origin = (
             INTERNAL_ORIGIN
-            if path == INTERNAL_BASELINE_PATH and pembangkit_baseline.permintaan_sah(client_ip, headers)
+            if path == INTERNAL_BASELINE_PATH and pembangkit_baseline.permintaan_sah(direct_client_ip, headers)
             else GUEST_ORIGIN
         )
         request_bytes = 0

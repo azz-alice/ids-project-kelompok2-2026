@@ -23,19 +23,15 @@
           <span class="label">Ticket</span>
           <span class="tiket-kode" id="tiket">—</span>
         </div>
-        <button class="tombol-tema" id="theme-toggle" type="button" aria-label="Ganti ke tema gelap" title="Ganti ke tema gelap">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle class="tema-cincin" cx="12" cy="12" r="8.25" />
-            <path class="tema-separuh" d="M12 3.75a8.25 8.25 0 0 0 0 16.5z" />
-          </svg>
-        </button>
-      </div>
-      <div class="timer-baris">
-        <div>
-          <span class="label">Sisa waktu sesi</span>
-          <div class="timer" id="timer" role="timer" aria-live="off">--:--</div>
+        <div class="sesi-kanan">
+          <span class="status-sesi" id="status-sesi">Memeriksa sesi</span>
+          <button class="tombol-tema" id="theme-toggle" type="button" aria-label="Ganti ke tema gelap" title="Ganti ke tema gelap">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle class="tema-cincin" cx="12" cy="12" r="8.25" />
+              <path class="tema-separuh" d="M12 3.75a8.25 8.25 0 0 0 0 16.5z" />
+            </svg>
+          </button>
         </div>
-        <span class="status-sesi" id="status-sesi">Memeriksa sesi</span>
       </div>
       <div class="sesi-selesai" id="sesi-selesai" hidden>
         <span id="pesan-sesi"></span>
@@ -48,30 +44,17 @@
       <div class="daftar-pilihan">
         <button class="pilihan-item" type="button" data-scenario="volume_spike" disabled>
           <span class="pilihan-judul">Kenaikan volume traffic</span>
-          <span class="pilihan-ket">10 request berurutan dengan ukuran data tetap.</span>
+          <span class="pilihan-ket">Kirim burst 30 request dengan protokol acak (TCP/UDP/HTTP).</span>
         </button>
         <button class="pilihan-item" type="button" data-scenario="payload_size_variation" disabled>
           <span class="pilihan-judul">Perbedaan ukuran data</span>
-          <span class="pilihan-ket">6 request dengan ukuran data berbeda, 64 B sampai 16 KB.</span>
+          <span class="pilihan-ket">Kirim burst 30 request variasi ukuran data 64 B sampai 16 KB.</span>
         </button>
         <button class="pilihan-item" type="button" data-scenario="request_frequency" disabled>
           <span class="pilihan-judul">Peningkatan frekuensi request</span>
-          <span class="pilihan-ket">12 request dengan jeda 0,2 detik.</span>
+          <span class="pilihan-ket">Kirim burst 30 request frekuensi tinggi dengan protokol acak.</span>
         </button>
       </div>
-    </section>
-
-    <section class="pengiriman" aria-labelledby="judul-pengiriman">
-      <div class="pengiriman-kepala">
-        <h2 id="judul-pengiriman">Status pengiriman</h2>
-        <button class="tombol-sekunder" id="hentikan" type="button" hidden>Hentikan</button>
-      </div>
-      <p class="pengiriman-pesan" id="pesan-pengiriman" role="status" aria-live="polite">Belum ada aktivitas dikirim.</p>
-      <dl class="rincian">
-        <div><dt>Request diterima</dt><dd id="hasil-jumlah">—</dd></div>
-        <div><dt>Data terkirim</dt><dd id="hasil-byte">—</dd></div>
-        <div><dt>Jeda berikutnya</dt><dd id="hasil-jeda">Siap</dd></div>
-      </dl>
     </section>
   </main>
   <script type="module" src="/assets/js/app.js"></script>

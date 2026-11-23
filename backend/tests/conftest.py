@@ -16,6 +16,7 @@ from app.modules.baseline.service import baseline_service
 from app.modules.database.service import Database
 from app.modules.deret_waktu.layanan import layanan_deret_waktu
 from app.modules.incidents.service import incident_service
+from app.modules.kondisi_traffic import pengelola_kondisi
 from app.modules.lalu_lintas_internal.pembangkit import pembangkit_baseline
 from app.modules.logs.service import log_service
 from app.modules.sessions.service import session_service
@@ -39,5 +40,6 @@ def database(tmp_path, monkeypatch) -> Iterator[Database]:
     monkeypatch.setattr(incident_service, "database", db)
     monkeypatch.setattr(log_service, "database", db)
     monkeypatch.setattr(layanan_deret_waktu, "database", db)
+    monkeypatch.setattr(pengelola_kondisi, "database", db)
     yield db
     db.close()

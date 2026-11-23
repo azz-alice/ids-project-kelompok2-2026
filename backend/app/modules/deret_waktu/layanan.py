@@ -16,7 +16,7 @@ class LayananDeretWaktu:
     def __init__(self, database: Database | None = None) -> None:
         self.database = database or default_database
 
-    def deret(self, detik: int = 120, sekarang: datetime | None = None) -> dict[str, Any]:
+    def deret(self, detik: int = 60, sekarang: datetime | None = None) -> dict[str, Any]:
         jumlah = max(10, min(int(detik), BATAS_DETIK))
         current = sekarang or utc_now()
         akhir = datetime.fromtimestamp(math.floor(current.timestamp()), timezone.utc)
@@ -62,7 +62,13 @@ class LayananDeretWaktu:
             "server_time": to_iso(current),
             "has_events": total > 0,
             "points": [
-                {"t": to_iso(awal + timedelta(seconds=index)), **titik[index]}
+                {
+                    "t": to_iso(awal + timedelta(seconds=index)),
+                    "pps": titik[index]["packets"],
+                    "bps": titik[index]["packet_bytes"] + titik[index]["app_bytes"],
+                    "rps": titik[index]["internal"] + titik[index]["visitor"],
+                    **titik[index],
+                }
                 for index in range(jumlah)
             ],
         }
@@ -101,22 +107,34 @@ class LayananDeretWaktu:
                 )
         return {
             "id": row["id"],
+            "ticket": row["ticket_code"],
+            "session_id": row["session_id"],
+            "activity_id": row["activity_id"],
             "rule_id": row["rule_id"],
             "label": row["label"],
             "severity": row["severity"],
             "reason": row["reason"],
+            "score": row["score"],
             "measured_value": row["score"],
             "created_at": row["created_at"],
-            "rules_version": row["rules_version"],
-            "ticket": row["ticket_code"],
-            "client_ip": row["session_ip"],
-            "session_id": row["session_id"],
-            "activity_id": row["activity_id"],
-            "window_start": awal,
-            "window_end": akhir,
+            "detection": {
+                "id": row["id"],
+                "created_at": row["created_at"],
+                "rule_id": row["rule_id"],
+                "label": row["label"],
+                "severity": row["severity"],
+                "reason": row["reason"],
+                "score": row["score"],
+                "ticket": row["ticket_code"],
+                "session_ip": row["session_ip"],
+                "source": row["source"],
+            },
             "features": fitur,
+            "window": {"start": awal, "end": akhir},
             "application_events": peristiwa,
-            "packet_events": paket,
+            "packets": paket,
+            "sample_application_events": peristiwa,
+            "sample_packets": paket,
         }
 
 

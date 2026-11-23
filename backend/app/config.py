@@ -64,14 +64,14 @@ class Settings:
     database_path: Path = field(default_factory=_database_path)
     session_duration_seconds: int = field(default_factory=lambda: _int("SESSION_DURATION_SECONDS", 120))
     max_active_sessions: int = field(default_factory=lambda: _int("MAX_ACTIVE_SESSIONS", 5))
-    anomaly_cooldown_seconds: int = field(default_factory=lambda: _int("ANOMALY_COOLDOWN_SECONDS", 30))
-    max_activities_per_session: int = field(default_factory=lambda: _int("MAX_ACTIVITIES_PER_SESSION", 12))
+    anomaly_cooldown_seconds: int = field(default_factory=lambda: _int("ANOMALY_COOLDOWN_SECONDS", 10))
+    max_activities_per_session: int = field(default_factory=lambda: _int("MAX_ACTIVITIES_PER_SESSION", 0))
     live_traffic_buffer_size: int = field(default_factory=lambda: _int("LIVE_TRAFFIC_BUFFER_SIZE", 500))
     max_request_body_bytes: int = field(default_factory=lambda: _int("MAX_REQUEST_BODY_BYTES", 65536))
-    max_activity_requests: int = field(default_factory=lambda: _int("MAX_ACTIVITY_REQUESTS", 16))
+    max_activity_requests: int = field(default_factory=lambda: _int("MAX_ACTIVITY_REQUESTS", 30))
     max_activity_payload_bytes: int = field(default_factory=lambda: _int("MAX_ACTIVITY_PAYLOAD_BYTES", 16384))
-    max_activity_duration_seconds: int = field(default_factory=lambda: _int("MAX_ACTIVITY_DURATION_SECONDS", 15))
-    guest_rate_limit_per_minute: int = field(default_factory=lambda: _int("GUEST_RATE_LIMIT_PER_MINUTE", 120))
+    max_activity_duration_seconds: int = field(default_factory=lambda: _int("MAX_ACTIVITY_DURATION_SECONDS", 45))
+    guest_rate_limit_per_minute: int = field(default_factory=lambda: _int("GUEST_RATE_LIMIT_PER_MINUTE", 300))
     session_create_limit_per_minute: int = field(default_factory=lambda: _int("SESSION_CREATE_LIMIT_PER_MINUTE", 6))
     sensor_enabled: bool = field(default_factory=lambda: _bool("SENSOR_ENABLED", False))
     sensor_interface: str = field(default_factory=lambda: _str("SENSOR_INTERFACE", ""))
@@ -118,6 +118,7 @@ INTERNAL_BASELINE_PATH = "/api/internal/baseline"
 INTERNAL_ORIGIN = "internal_baseline"
 GUEST_ORIGIN = "guest"
 PROBE_PATH = "/api/activity/probe"
+PROBE_PROTOCOL_PATH = "/api/activity/probe-protocol"
 HEARTBEAT_PATH = "/api/session/heartbeat"
 
 SCENARIOS: dict[str, ScenarioProfile] = {

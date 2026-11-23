@@ -20,16 +20,10 @@ const penyimpanan = {
 const elemen = {
   sesi: document.getElementById("sesi"),
   tiket: document.getElementById("tiket"),
-  timer: document.getElementById("timer"),
   status: document.getElementById("status-sesi"),
   selesai: document.getElementById("sesi-selesai"),
   pesanSesi: document.getElementById("pesan-sesi"),
   sesiBaru: document.getElementById("sesi-baru"),
-  pesan: document.getElementById("pesan-pengiriman"),
-  jumlah: document.getElementById("hasil-jumlah"),
-  byte: document.getElementById("hasil-byte"),
-  jeda: document.getElementById("hasil-jeda"),
-  hentikan: document.getElementById("hentikan"),
   tema: document.getElementById("theme-toggle"),
   pilihan: [...document.querySelectorAll("[data-scenario]")]
 };
@@ -69,21 +63,6 @@ function sinkronWaktu(serverTime) {
 
 const sisaDetik = (iso) => (iso ? Math.max(0, Math.ceil((new Date(iso).getTime() - waktuServer()) / 1000)) : 0);
 
-function formatWaktu(detik) {
-  return `${String(Math.floor(detik / 60)).padStart(2, "0")}:${String(detik % 60).padStart(2, "0")}`;
-}
-
-function formatByte(nilai) {
-  if (nilai < 1024) return `${nilai} B`;
-  return `${(nilai / 1024).toFixed(1).replace(".", ",")} KB`;
-}
-
-function setPesan(teks, nada = "") {
-  elemen.pesan.textContent = teks;
-  if (nada) elemen.pesan.dataset.tone = nada;
-  else delete elemen.pesan.dataset.tone;
-}
-
 function tampilkanSesi(status, label, pesan = "") {
   elemen.sesi.dataset.state = status;
   elemen.status.textContent = label;
@@ -92,22 +71,16 @@ function tampilkanSesi(status, label, pesan = "") {
 }
 
 function perbaruiTombol() {
+  if (keadaan.sesi && sisaDetik(keadaan.sesi.expires_at) === 0 && !keadaan.berakhir) {
+    akhiriSesi();
+    return;
+  }
   const jedaDetik = sisaDetik(keadaan.sesi?.cooldown_until);
   const siap = !keadaan.berakhir && !keadaan.sibuk && jedaDetik === 0;
   elemen.pilihan.forEach((tombol) => {
     tombol.disabled = !siap;
     tombol.setAttribute("aria-pressed", String(keadaan.sibuk && tombol.dataset.scenario === keadaan.skenarioAktif));
   });
-  elemen.jeda.textContent = keadaan.berakhir ? "—" : jedaDetik > 0 ? `${jedaDetik} detik` : "Siap";
-  elemen.hentikan.hidden = !keadaan.sibuk;
-}
-
-function perbaruiTimer() {
-  if (!keadaan.sesi) return;
-  const sisa = sisaDetik(keadaan.sesi.expires_at);
-  elemen.timer.textContent = formatWaktu(sisa);
-  if (sisa === 0 && !keadaan.berakhir) akhiriSesi();
-  else perbaruiTombol();
 }
 
 function pakaiSesi(data) {
@@ -120,13 +93,12 @@ function pakaiSesi(data) {
   keadaan.berakhir = false;
   elemen.tiket.textContent = keadaan.sesi.ticket_code || "—";
   tampilkanSesi("aktif", "Sesi aktif");
-  perbaruiTimer();
+  perbaruiTombol();
 }
 
 function akhiriSesi(pesan = "Sesi selesai. Mulai sesi baru untuk melanjutkan.") {
   keadaan.berakhir = true;
   if (keadaan.pengendali) keadaan.pengendali.abort();
-  elemen.timer.textContent = "00:00";
   tampilkanSesi("selesai", "Sesi selesai", pesan);
   perbaruiTombol();
 }
@@ -147,9 +119,6 @@ async function mulaiSesiBaru() {
   penyimpanan.hapus(KUNCI_TOKEN);
   try {
     await buatSesi();
-    setPesan("Belum ada aktivitas dikirim.");
-    elemen.jumlah.textContent = "—";
-    elemen.byte.textContent = "—";
   } catch (galat) {
     keadaan.berakhir = true;
     tampilkanSesi("gagal", "Sesi tidak dibuat", galat.status === 409 ? "Pengunjung aktif sudah penuh. Coba lagi sebentar." : galat.message);
@@ -210,46 +179,38 @@ async function jalankanSkenario(nama) {
   keadaan.sibuk = true;
   keadaan.skenarioAktif = nama;
   perbaruiTombol();
-  elemen.jumlah.textContent = "0";
-  elemen.byte.textContent = "0 B";
-  setPesan("Menyiapkan aktivitas.");
   let idAktivitas = null;
   let rencana = 0;
   let diterima = 0;
-  let totalByte = 0;
+
+  const protokol = "RANDOM";
+  const batchCount = 30;
+  const mode = "burst";
+
   try {
-    const paket = await postJson("/api/activity", { scenario: nama }, token);
+    const payloadAktivitas = { scenario: nama, protocol: protokol, mode, batch_count: batchCount };
+    const paket = await postJson("/api/activity", payloadAktivitas, token);
     idAktivitas = paket.activity_id;
     rencana = paket.planned_request_count;
     keadaan.sesi.cooldown_until = paket.cooldown_until;
     perbaruiTombol();
+
     for (const [indeks, ukuran] of paket.payload_sizes.entries()) {
       if (indeks > 0) await tidur(paket.interval_seconds * 1000, pengendali.signal);
       const balasan = await postJson(
-        "/api/activity/probe",
-        { activity_id: idAktivitas, payload: "x".repeat(ukuran) },
+        "/api/activity/probe-protocol",
+        { activity_id: idAktivitas, protocol: protokol, payload: "x".repeat(ukuran) },
         token,
         { "X-IDS-Activity-Id": idAktivitas },
         pengendali.signal
       );
       diterima = balasan.completed_request_count;
-      totalByte += ukuran;
-      elemen.jumlah.textContent = `${diterima} dari ${rencana}`;
-      elemen.byte.textContent = formatByte(totalByte);
-      setPesan(`Mengirim ${paket.scenario_label}: ${diterima} dari ${rencana} request.`);
     }
-    setPesan(`${paket.scenario_label} selesai. ${diterima} request diterima server.`, "berhasil");
   } catch (galat) {
-    if (galat.name === "AbortError") {
-      setPesan(`Pengiriman dihentikan setelah ${diterima} request.`);
-    } else if (galat.status === 401) {
+    if (galat.status === 401) {
       akhiriSesi();
-      setPesan("Pengiriman berhenti karena sesi selesai.", "galat");
-    } else {
-      if (galat.status === 429 && galat.retryAfter > 0 && keadaan.sesi) {
-        keadaan.sesi.cooldown_until = new Date(waktuServer() + galat.retryAfter * 1000).toISOString();
-      }
-      setPesan(galat.message, "galat");
+    } else if (galat.status === 429 && galat.retryAfter > 0 && keadaan.sesi) {
+      keadaan.sesi.cooldown_until = new Date(waktuServer() + galat.retryAfter * 1000).toISOString();
     }
   } finally {
     keadaan.pengendali = null;
@@ -263,8 +224,6 @@ async function jalankanSkenario(nama) {
 async function batalkanAktivitas(idAktivitas, token) {
   try {
     const status = await requestJson(`/api/activity/${idAktivitas}`, { headers: authHeaders(token) });
-    elemen.jumlah.textContent = `${status.request_count} dari ${status.planned_count}`;
-    elemen.byte.textContent = formatByte(status.actual_payload_bytes);
     if (status.status === "running") await postJson(`/api/activity/${idAktivitas}/cancel`, {}, token);
   } catch {
     return;
@@ -278,14 +237,13 @@ async function kirimHeartbeat() {
     sinkronWaktu(data.server_time);
     keadaan.sesi.expires_at = data.expires_at;
     keadaan.sesi.cooldown_until = data.cooldown_until ?? null;
-    perbaruiTimer();
+    perbaruiTombol();
   } catch (galat) {
     if (galat.status === 401) akhiriSesi();
   }
 }
 
 elemen.pilihan.forEach((tombol) => tombol.addEventListener("click", () => jalankanSkenario(tombol.dataset.scenario)));
-elemen.hentikan.addEventListener("click", () => keadaan.pengendali?.abort());
 elemen.sesiBaru.addEventListener("click", () => {
   if (elemen.sesiBaru.dataset.mode === "ulang") {
     delete elemen.sesiBaru.dataset.mode;
@@ -296,6 +254,6 @@ elemen.sesiBaru.addEventListener("click", () => {
   }
 });
 
-setInterval(perbaruiTimer, 250);
+setInterval(perbaruiTombol, 1000);
 setInterval(kirimHeartbeat, INTERVAL_HEARTBEAT_MS);
 pulihkanSesi();

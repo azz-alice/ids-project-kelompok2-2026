@@ -174,6 +174,14 @@ class SessionService:
         )
         return cooldown_until
 
+    def extend_session(self, session_id: str) -> str:
+        expires_at = to_iso(utc_now() + timedelta(seconds=settings.session_duration_seconds))
+        self.database.execute(
+            "UPDATE sessions SET expires_at = ? WHERE id = ? AND status = 'active'",
+            (expires_at, session_id),
+        )
+        return expires_at
+
     def clear_cooldown(self, session_id: str) -> None:
         self.database.execute(
             "UPDATE sessions SET cooldown_until = NULL WHERE id = ?",

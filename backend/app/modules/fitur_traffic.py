@@ -42,7 +42,7 @@ def bangun_fitur(
 ) -> dict[str, Any]:
     internal = [row for row in app_events if row.get("origin") == INTERNAL_ORIGIN and _berhasil(row)]
     visitor_events = [row for row in app_events if row.get("origin") != INTERNAL_ORIGIN]
-    probes = [row for row in visitor_events if row.get("path") == PROBE_PATH and _berhasil(row)]
+    probes = [row for row in visitor_events if str(row.get("path") or "").startswith("/api/activity/probe") and _berhasil(row)]
     heartbeats = [row for row in visitor_events if row.get("path") == HEARTBEAT_PATH and _berhasil(row)]
 
     request_sizes = [float(row.get("request_bytes") or 0) for row in probes]

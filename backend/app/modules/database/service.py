@@ -242,6 +242,8 @@ class Database:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA synchronous = NORMAL")
+        connection.execute("PRAGMA wal_autocheckpoint = 1000")
+        connection.execute("PRAGMA cache_size = -8000")
         connection.executescript(SCHEMA)
         self._add_missing_columns(connection)
         self._connection = connection

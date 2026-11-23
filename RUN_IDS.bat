@@ -1,91 +1,99 @@
-
 @echo off
-setlocal EnableExtensions
-title IDS Project Launcher
-
-cd /d "%~dp0"
+setlocal EnableExtensions EnableDelayedExpansion
+title IDS Launcher
 
 set "ROOT=%~dp0"
-set "BACKEND=%ROOT%backend"
-set "VENV=%BACKEND%\.venv"
-set "PYTHON=%VENV%\Scripts\python.exe"
-set "REQUIREMENTS=%BACKEND%\requirements.txt"
-set "ENV_FILE=%BACKEND%\.env"
-set "ENV_EXAMPLE=%BACKEND%\.env.example"
 
-if not exist "%BACKEND%\app\guest_app.py" (
-    goto :failed
+if exist "%ROOT%backend\requirements.txt" (
+    set "BACKEND=%ROOT%backend"
+) else if exist "%ROOT%requirements.txt" (
+    set "BACKEND=%ROOT%"
+) else (
+    echo Backend tidak ditemukan.
+    pause
+    exit /b 1
 )
 
-if not exist "%BACKEND%\app\management_app.py" (
-    goto :failed
-)
+for %%I in ("%BACKEND%") do set "BACKEND=%%~fI"
 
-if not exist "%REQUIREMENTS%" (
-    goto :failed
-)
+set "VENV_PY=%BACKEND%\.venv\Scripts\python.exe"
 
-where py >nul 2>nul
-if errorlevel 1 (
-    goto :failed
-)
+if not exist "%VENV_PY%" (
+    where py >nul 2>&1
+    if not errorlevel 1 (
+        py -3 -m venv "%BACKEND%\.venv"
+    ) else (
+        python -m venv "%BACKEND%\.venv"
+    )
 
-py -3.14 --version >nul 2>nul
-if errorlevel 1 (
-    goto :failed
-)
-py -3.14 --version
-
-if exist "%PYTHON%" (
-    "%PYTHON%" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3,14) else 1)" >nul 2>nul
     if errorlevel 1 (
-        rmdir /s /q "%VENV%"
+        echo Gagal membuat virtual environment.
+        pause
+        exit /b 1
     )
 )
 
-if not exist "%PYTHON%" (
-    py -3.14 -m venv "%VENV%"
+"%VENV_PY%" -m pip install --upgrade pip
+if errorlevel 1 (
+    echo Gagal menyiapkan pip.
+    pause
+    exit /b 1
+)
+
+"%VENV_PY%" -m pip install -r "%BACKEND%\requirements.txt"
+if errorlevel 1 (
+    echo Instalasi dependency gagal.
+    pause
+    exit /b 1
+)
+
+pushd "%BACKEND%"
+
+set "GUEST_TARGET="
+set "MAIN_TARGET="
+
+for /r "%BACKEND%" %%F in (*.py) do (
+    echo %%~fF | findstr /i /c:"\.venv\" /c:"\venv\" /c:"\__pycache__\" >nul
     if errorlevel 1 (
-        goto :failed
+        findstr /i /c:"FastAPI(" "%%~fF" >nul
+        if not errorlevel 1 (
+            set "REL=%%~fF"
+            set "REL=!REL:%BACKEND%\=!"
+            set "REL=!REL:.py=!"
+            set "MOD=!REL:\=.!"
+            if /i "!MOD:~-9!"==".__init__" set "MOD=!MOD:~0,-9!"
+
+            echo %%~fF | findstr /i "guest visitor pengunjung" >nul
+            if not errorlevel 1 set "GUEST_TARGET=!MOD!:app"
+
+            echo %%~fF | findstr /i "management admin utama" >nul
+            if not errorlevel 1 set "MAIN_TARGET=!MOD!:app"
+        )
     )
 )
-"%PYTHON%" -c "import fastapi, uvicorn, scapy, dotenv, httpx" >nul 2>nul
 
-if errorlevel 1 (
-    "%PYTHON%" -m ensurepip --upgrade
-    if errorlevel 1 goto :failed
-
-    "%PYTHON%" -m pip install --disable-pip-version-check --upgrade pip
-    if errorlevel 1 goto :failed
-
-    "%PYTHON%" -m pip install --disable-pip-version-check -r "%REQUIREMENTS%"
-    if errorlevel 1 goto :failed
-) else (
-)
-if not exist "%ENV_FILE%" (
-    if not exist "%ENV_EXAMPLE%" (
-        goto :failed
-    )
-
-    copy "%ENV_EXAMPLE%" "%ENV_FILE%" >nul
-    if errorlevel 1 goto :failed
-
+if not defined GUEST_TARGET (
+    echo Web Pengunjung tidak ditemukan.
+    popd
+    pause
+    exit /b 1
 )
 
-if not exist "%BACKEND%\data" mkdir "%BACKEND%\data"
-
-netstat -ano | findstr /R /C:":8000 .*LISTENING" >nul
-
-if errorlevel 1 (
-    start "IDS - Web Pengunjung" "%ComSpec%" /k "cd /d ""%BACKEND%"" && ""%PYTHON%"" -m uvicorn app.guest_app:app --host 0.0.0.0 --port 8000"
-) else (
+if not defined MAIN_TARGET (
+    echo Web Utama tidak ditemukan.
+    popd
+    pause
+    exit /b 1
 )
 
-netstat -ano | findstr /R /C:":8001 .*LISTENING" >nul
+start "IDS Web Pengunjung" "%ComSpec%" /k ""%VENV_PY%" -m uvicorn !GUEST_TARGET! --host 0.0.0.0 --port 8000"
 
-if errorlevel 1 (
-    start "IDS - Web Utama" "%ComSpec%" /k "cd /d ""%BACKEND%"" && ""%PYTHON%"" -m uvicorn app.management_app:app --host 127.0.0.1 --port 8001"
-) else (
-)
+start "IDS Web Utama" "%ComSpec%" /k ""%VENV_PY%" -m uvicorn !MAIN_TARGET! --host 127.0.0.1 --port 8001"
+
+echo.
+echo Web Pengunjung: http://127.0.0.1:8000
+echo Web Utama: http://127.0.0.1:8001
+echo.
+
+popd
 pause
-exit /b 0

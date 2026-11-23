@@ -131,24 +131,75 @@ input[type="search"] { width: 190px; }
 .baris-grafik { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-height: 0; }
 .baris-grafik:has(.panel-deteksi:not([hidden])) { grid-template-columns: minmax(0, 1fr) 360px; }
 .panel-grafik .panel-kepala { padding: 8px 14px; }
-.kondisi { font-size: 14px; font-weight: 500; color: var(--text-muted); }
-.kondisi::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--text-muted); }
-.kondisi[data-state="normal"] { color: var(--success); }
-.kondisi[data-state="normal"]::before { background: var(--success); }
-.kondisi[data-state="above_baseline"] { color: var(--warning); }
-.kondisi[data-state="above_baseline"]::before { background: var(--warning); }
-.kondisi[data-state="abnormal"] { color: var(--danger); }
-.kondisi[data-state="abnormal"]::before { background: var(--danger); }
+.kondisi-widget {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  user-select: none;
+}
+.kondisi-baris {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.kondisi-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.kondisi-status {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.kondisi-widget[data-state="normal"] .kondisi-status { color: var(--success); }
+.kondisi-widget[data-state="normal"] .kondisi-dot { background: var(--success); }
+.kondisi-widget[data-state="above_baseline"] .kondisi-status { color: var(--warning); }
+.kondisi-widget[data-state="above_baseline"] .kondisi-dot { background: var(--warning); }
+.kondisi-widget[data-state="anomalous"] .kondisi-status { color: var(--danger); }
+.kondisi-widget[data-state="anomalous"] .kondisi-dot { background: var(--danger); }
+.kondisi-widget[data-state="recovering"] .kondisi-status { color: #38bdf8; }
+.kondisi-widget[data-state="recovering"] .kondisi-dot { background: #38bdf8; }
+.kondisi-waktu {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1;
+}
+:root[data-theme="light"] .kondisi-waktu { color: #111111; }
 .grafik-kotak { position: relative; flex: 1 1 auto; min-height: 0; }
 .grafik-kotak canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .grafik-kosong { position: absolute; left: 0; right: 0; top: 38%; text-align: center; font-size: 14px; color: var(--text-muted); pointer-events: none; }
 .tooltip-grafik {
-  position: absolute; z-index: 2; min-width: 150px; padding: 8px 10px; pointer-events: none;
-  border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 13px; line-height: 1.5;
+  position: absolute; z-index: 10; pointer-events: none;
+  min-width: 140px; padding: 6px 10px; border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 12.5px; line-height: 1.45;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: opacity .12s ease;
 }
-.tooltip-grafik .waktu { font-family: var(--font-mono); color: var(--text-muted); }
-.tooltip-grafik .nilai { display: flex; justify-content: space-between; gap: 14px; }
-.tooltip-grafik .nilai b { font-family: var(--font-mono); font-weight: 600; }
+.tooltip-grafik .waktu {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-muted); margin-bottom: 2px;
+}
+.tooltip-grafik .nilai-item {
+  display: flex; align-items: center; gap: 6px; font-weight: 500;
+}
+.tooltip-grafik .nilai-item .titik-warna {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.tooltip-grafik .nilai-item b {
+  font-family: var(--font-mono); font-weight: 600;
+}
 .legenda { flex: 0 0 auto; display: flex; gap: 18px; padding: 0 14px 8px; font-size: 13px; color: var(--text-muted); }
 .legenda i { display: inline-block; width: 18px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
 

@@ -12,6 +12,13 @@ from app.modules.database.service import Database, default_database, dumps, from
 from app.modules.detection.service import detection_service
 from app.modules.fitur_traffic import bangun_fitur
 from app.modules.incidents.service import incident_service
+from app.modules.kondisi_traffic import (
+    STATUS_ABOVE_BASELINE,
+    STATUS_ANOMALOUS,
+    STATUS_NORMAL,
+    STATUS_RECOVERING,
+    pengelola_kondisi,
+)
 from app.modules.logs.service import log_service
 
 PUBLISHED_PATH_PREFIX = "/api/"
@@ -21,6 +28,7 @@ UNPUBLISHED_PATHS = {"/api/health", "/api/guest/status"}
 class TelemetryPipeline:
     def __init__(self, database: Database | None = None) -> None:
         self.database = database or default_database
+        self._last_retention_ts = 0.0
         self.database.connect()
 
     def _publish_locked(self, connection: Any, event_type: str, data: dict[str, Any]) -> int:
@@ -144,30 +152,31 @@ class TelemetryPipeline:
 
     def record_packet(self, packet: dict[str, Any]) -> int:
         observed_at = packet.get("timestamp") or to_iso(utc_now())
-        session_id = None
-        activity_id = None
-        correlation_method = None
-        candidate_ips = {
-            ip for ip in (packet.get("source_ip"), packet.get("destination_ip")) if ip
-        }
-        if candidate_ips:
-            placeholders = ",".join("?" for _ in candidate_ips)
-            sessions = self.database.fetch_all(
-                f"SELECT id FROM sessions WHERE client_ip IN ({placeholders}) "
-                "AND status = 'active' AND started_at <= ? AND expires_at > ?",
-                (*candidate_ips, observed_at, observed_at),
-            )
-            if len(sessions) == 1:
-                session_id = sessions[0]["id"]
-                correlation_method = "client_ip_session_time"
-                activities = self.database.fetch_all(
-                    "SELECT id FROM activities WHERE session_id = ? AND status = 'running' "
-                    "AND started_at <= ? ORDER BY started_at DESC LIMIT 2",
-                    (session_id, observed_at),
+        session_id = packet.get("session_id")
+        activity_id = packet.get("activity_id")
+        correlation_method = "direct_probe_correlation" if session_id else None
+        if not session_id:
+            candidate_ips = {
+                ip for ip in (packet.get("source_ip"), packet.get("destination_ip")) if ip
+            }
+            if candidate_ips:
+                placeholders = ",".join("?" for _ in candidate_ips)
+                sessions = self.database.fetch_all(
+                    f"SELECT id FROM sessions WHERE client_ip IN ({placeholders}) "
+                    "AND status = 'active' AND started_at <= ? AND expires_at > ?",
+                    (*candidate_ips, observed_at, observed_at),
                 )
-                if len(activities) == 1:
-                    activity_id = activities[0]["id"]
-                    correlation_method = "client_ip_active_activity_time"
+                if len(sessions) == 1:
+                    session_id = sessions[0]["id"]
+                    correlation_method = "client_ip_session_time"
+                    activities = self.database.fetch_all(
+                        "SELECT id FROM activities WHERE session_id = ? AND status = 'running' "
+                        "AND started_at <= ? ORDER BY started_at DESC LIMIT 2",
+                        (session_id, observed_at),
+                    )
+                    if len(activities) == 1:
+                        activity_id = activities[0]["id"]
+                        correlation_method = "client_ip_active_activity_time"
 
         values = (
             observed_at,
@@ -298,8 +307,8 @@ class TelemetryPipeline:
 
         app_events = self.database.fetch_all(
             "SELECT * FROM application_events "
-            "WHERE (path IN (?, ?) OR origin = ?) AND observed_at >= ? AND observed_at < ? ORDER BY observed_at",
-            (PROBE_PATH, HEARTBEAT_PATH, INTERNAL_ORIGIN, start_iso, end_iso),
+            "WHERE (path LIKE '/api/activity/probe%' OR path = ? OR origin = ?) AND observed_at >= ? AND observed_at < ? ORDER BY observed_at",
+            (HEARTBEAT_PATH, INTERNAL_ORIGIN, start_iso, end_iso),
         )
         packets = self.database.fetch_all(
             "SELECT * FROM packet_events WHERE observed_at >= ? AND observed_at < ? ORDER BY observed_at",
@@ -348,7 +357,9 @@ class TelemetryPipeline:
             activity_ids = {row["activity_id"] for row in session_app if row.get("activity_id")}
             self._persist_findings(session_findings, start_iso, end_iso, session_id, activity_ids)
 
-        self.database.apply_retention(settings.retention_hours, settings.log_retention_days)
+        if current.timestamp() - self._last_retention_ts >= 300:
+            self._last_retention_ts = current.timestamp()
+            self.database.apply_retention(settings.retention_hours, settings.log_retention_days)
         return features
 
     def events_after(self, event_id: int, limit: int = 100) -> list[dict[str, Any]]:
@@ -481,19 +492,61 @@ class TelemetryPipeline:
         latest_window = windows[-1]["features"] if windows else {}
         baseline = baseline_service.state("global")
         condition_cutoff = to_iso(utc_now() - timedelta(seconds=settings.analysis_window_seconds * 3))
-        recent_severities = {
-            row["severity"] for row in self.database.fetch_all(
-                "SELECT DISTINCT severity FROM detections WHERE created_at >= ?", (condition_cutoff,)
-            )
-        }
-        if recent_severities & {"high", "critical"}:
-            condition = {"status": "abnormal", "label": "Traffic tidak normal", "message": "Aturan deteksi terpenuhi pada window terbaru."}
-        elif recent_severities:
-            condition = {"status": "above_baseline", "label": "Kenaikan di atas batas wajar", "message": "Ada kenaikan di atas batas wajar pada window terbaru."}
-        elif not latest_window:
-            condition = {"status": "waiting_for_data", "label": "Menunggu traffic", "message": "Belum ada window traffic yang dianalisis."}
+        recent_detections = self.database.fetch_all(
+            "SELECT d.label, d.severity, d.reason, d.score, s.ticket_code "
+            "FROM detections d LEFT JOIN sessions s ON s.id = d.session_id "
+            "WHERE d.created_at >= ? ORDER BY d.created_at DESC",
+            (condition_cutoff,),
+        )
+        severities = {r["severity"] for r in recent_detections}
+        recent_10s = to_iso(utc_now() - timedelta(seconds=10))
+        recent_visitor_10s = int(self.database.scalar(
+            "SELECT COUNT(*) FROM application_events WHERE origin != ? AND path LIKE '/api/activity/probe%' AND observed_at >= ?",
+            (INTERNAL_ORIGIN, recent_10s),
+        ) or 0)
+        recent_visitor_bytes_10s = int(self.database.scalar(
+            "SELECT COALESCE(SUM(request_bytes), 0) FROM application_events WHERE origin != ? AND path LIKE '/api/activity/probe%' AND observed_at >= ?",
+            (INTERNAL_ORIGIN, recent_10s),
+        ) or 0)
+
+        anomaly_type = None
+        anomaly_details = None
+        if severities & {"high", "critical"} or recent_visitor_10s >= 5 or recent_visitor_bytes_10s >= 10000:
+            raw_status = STATUS_ANOMALOUS
+            latest_det = next((r for r in recent_detections if r["severity"] in {"high", "critical"}), recent_detections[0] if recent_detections else None)
+            if latest_det:
+                anomaly_type = latest_det["label"]
+                anomaly_details = {
+                    "reason": latest_det["reason"],
+                    "ticket": latest_det.get("ticket_code"),
+                    "severity": latest_det["severity"],
+                }
+            else:
+                anomaly_type = "Peningkatan frekuensi request" if recent_visitor_10s >= 5 else "Kenaikan volume data"
+                anomaly_details = {
+                    "reason": f"Terukur {recent_visitor_10s} request pengunjung dalam 10 detik terakhir.",
+                    "severity": "high",
+                }
+        elif severities or recent_visitor_10s >= 1 or recent_visitor_bytes_10s >= 1000:
+            raw_status = STATUS_ABOVE_BASELINE
+            latest_det = recent_detections[0] if recent_detections else None
+            if latest_det:
+                anomaly_type = latest_det["label"]
+                anomaly_details = {
+                    "reason": latest_det["reason"],
+                    "ticket": latest_det.get("ticket_code"),
+                    "severity": latest_det["severity"],
+                }
+            else:
+                anomaly_type = "Deviasi volume traffic"
+                anomaly_details = {
+                    "reason": f"Terukur {recent_visitor_10s} request pengunjung di atas baseline.",
+                    "severity": "warning",
+                }
         else:
-            condition = {"status": "normal", "label": "Normal", "message": "Tidak ada aturan deteksi yang terpenuhi pada window terbaru."}
+            raw_status = STATUS_NORMAL
+
+        condition = pengelola_kondisi.perbarui_kondisi(raw_status, anomaly_type, anomaly_details)
         system_logs = log_service.list(limit=100)["items"]
         incidents = incident_service.list_recent(100)
         return {
@@ -504,7 +557,7 @@ class TelemetryPipeline:
                 "packets_per_second": round(recent_packets / 10, 2),
                 "total_bytes": int(self.database.scalar("SELECT COALESCE(SUM(packet_length), 0) FROM packet_events") or 0),
                 "application_requests_10s": int(self.database.scalar(
-                    "SELECT COUNT(*) FROM application_events WHERE path = '/api/activity/probe' AND observed_at >= ?", (recent_cutoff,)
+                    "SELECT COUNT(*) FROM application_events WHERE path LIKE '/api/activity/probe%' AND observed_at >= ?", (recent_cutoff,)
                 ) or 0),
                 "application_events_10s": all_application_events,
                 "warnings_total": int(self.database.scalar("SELECT COUNT(*) FROM detections WHERE severity = 'warning'") or 0),

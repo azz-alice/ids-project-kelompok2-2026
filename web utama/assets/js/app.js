@@ -32,8 +32,7 @@ const grafik = new GrafikTraffic({
   canvas: byId("grafik"),
   kosongEl: byId("grafik-kosong"),
   tooltipEl: byId("tooltip-grafik"),
-  legendaEl: byId("legenda-grafik"),
-  selectMetrik: byId("metrik-grafik")
+  legendaEl: byId("legenda-grafik")
 });
 
 const tabelTraffic = new TabelTraffic({
@@ -53,8 +52,48 @@ const keadaan = {
   deteksi: [],
   deteksiDipilih: null,
   timerSnapshot: null,
-  timerSeri: null
+  timerSeri: null,
+  kondisiTraffic: null
 };
+
+function formatDurasi(detik) {
+  const d = Math.max(0, Math.floor(detik || 0));
+  const m = Math.floor(d / 60);
+  const s = d % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+const LABEL_KONDISI_TEKNIS = {
+  normal: "NORMAL",
+  above_baseline: "DEVIASI BASELINE",
+  anomalous: "ANOMALI TRAFFIC",
+  recovering: "STABILISASI"
+};
+
+function perbaruiKondisiAi(tc) {
+  if (!tc) return;
+  keadaan.kondisiTraffic = { ...tc };
+  const widget = byId("kondisi-widget");
+  const teks = byId("kondisi-traffic");
+  const waktu = byId("kondisi-waktu");
+  if (!widget || !teks || !waktu) return;
+
+  const kode = tc.code || "normal";
+  const namaKondisi = LABEL_KONDISI_TEKNIS[kode] || tc.status || "NORMAL";
+  widget.dataset.state = kode;
+  teks.textContent = namaKondisi;
+
+  let dur = 0;
+  if (kode === "normal" || kode === "above_baseline") {
+    dur = tc.normal_duration_seconds ?? 0;
+  } else if (kode === "anomalous") {
+    dur = tc.anomaly_duration_seconds ?? 0;
+  } else if (kode === "recovering") {
+    dur = tc.recovery_duration_seconds ?? 0;
+  }
+  waktu.textContent = formatDurasi(dur);
+  widget.title = tc.message || namaKondisi;
+}
 
 function terapkanTema(tema) {
   root.dataset.theme = tema;
@@ -116,6 +155,7 @@ function tampilkanHalaman(nama) {
     else btn.removeAttribute("aria-current");
   });
   if (nama === "live") {
+    tabelTraffic.render();
     requestAnimationFrame(() => grafik.gambar());
   }
 }
@@ -153,11 +193,7 @@ byId("lihat-deteksi")?.addEventListener("click", () => tampilkanHalaman("deteksi
 function terapkanSnapshot(data) {
   if (!data) return;
   const tc = data.traffic_condition || {};
-  if (kondisiTraffic) {
-    kondisiTraffic.dataset.state = tc.status || "waiting_for_data";
-    kondisiTraffic.textContent = tc.label || "Menunggu traffic";
-    kondisiTraffic.title = tc.message || "";
-  }
+  perbaruiKondisiAi(tc);
 
   tabelTraffic.setSnapshot(data.traffic || [], data.application_events || []);
 
@@ -206,6 +242,7 @@ async function muatSnapshot() {
 }
 
 async function muatSeri() {
+  if (document.hidden || byId("grafik-kotak")?.offsetParent === null) return;
   try {
     const data = await request("/dashboard/series?seconds=90");
     grafik.perbaruiData(data);
@@ -321,6 +358,32 @@ byId("mulai-sensor")?.addEventListener("click", () => ubahSensor(true));
 byId("hentikan-sensor")?.addEventListener("click", () => ubahSensor(false));
 
 setInterval(() => {
+  if (keadaan.kondisiTraffic) {
+    const tc = keadaan.kondisiTraffic;
+    const kode = tc.code || "normal";
+    const waktu = byId("kondisi-waktu");
+    if (waktu) {
+      if (kode === "normal" || kode === "above_baseline") {
+        if (typeof tc.normal_duration_seconds === "number") {
+          tc.normal_duration_seconds += 1;
+          waktu.textContent = formatDurasi(tc.normal_duration_seconds);
+        }
+      } else if (kode === "anomalous") {
+        if (typeof tc.anomaly_duration_seconds === "number") {
+          tc.anomaly_duration_seconds += 1;
+          waktu.textContent = formatDurasi(tc.anomaly_duration_seconds);
+        }
+      } else if (kode === "recovering") {
+        if (typeof tc.recovery_duration_seconds === "number") {
+          tc.recovery_duration_seconds += 1;
+          waktu.textContent = formatDurasi(tc.recovery_duration_seconds);
+        }
+      }
+    }
+  }
+
+  muatSeri();
+
   if (!byId("isi-pengunjung")?.closest(".halaman")?.hidden) {
     renderPengunjung(
       keadaan.sesiAktif,
@@ -330,8 +393,6 @@ setInterval(() => {
     );
   }
 }, 1000);
-
-setInterval(muatSeri, 1500);
 
 function hubungkanWebSocket() {
   const skema = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -351,22 +412,29 @@ function hubungkanWebSocket() {
     }
     if (pesan.type === "snapshot") {
       terapkanSnapshot(pesan.data);
-      jadwalkanSeri(80);
       return;
     }
     if (pesan.type === "packet") {
       tabelTraffic.tambahPacket(pesan.data);
-      jadwalkanSeri();
       return;
     }
     if (pesan.type === "application_event") {
       tabelTraffic.tambahAplikasi(pesan.data);
-      jadwalkanSeri();
+      if (pesan.data && pesan.data.origin !== "internal") {
+        jadwalkanSnapshot(150);
+      }
       return;
     }
-    if (["detection", "alert", "incident", "session", "activity", "traffic_window", "health"].includes(pesan.type)) {
+    if (pesan.type === "traffic_condition") {
+      perbaruiKondisiAi(pesan.data);
       jadwalkanSnapshot();
-      jadwalkanSeri();
+      return;
+    }
+    if (["detection", "alert", "incident", "session", "activity", "health"].includes(pesan.type)) {
+      jadwalkanSnapshot();
+    }
+    if (pesan.type === "traffic_window") {
+      jadwalkanSeri(200);
     }
   });
 

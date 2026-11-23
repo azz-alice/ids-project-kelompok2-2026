@@ -10,6 +10,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, Response
 
 from app.config import settings
 from app.modules.database.service import default_database, dumps, to_iso, utc_now
+from app.modules.pengirim_protokol import pengirim_protokol
 from app.modules.sessions.service import session_service
 from app.modules.telemetry_pipeline import telemetry_pipeline
 from app.modules.traffic_tests.service import traffic_generator
@@ -124,6 +125,7 @@ async def session_heartbeat(
 ) -> dict[str, Any]:
     _check_guest_rate(request, "/api/session/heartbeat")
     session = _validated_session(_session_token(None, authorization, x_ids_session_token), enforce_cooldown=False)
+    session["expires_at"] = session_service.extend_session(session["id"])
     response.headers["Cache-Control"] = "no-store"
     return {
         "status": "active",
@@ -131,6 +133,19 @@ async def session_heartbeat(
         "expires_at": session["expires_at"],
         "cooldown_until": session.get("cooldown_until"),
         "server_time": to_iso(utc_now()),
+    }
+
+
+@router.get("/api/activity/protocols")
+async def activity_protocols() -> dict[str, Any]:
+    return {
+        "protocols": [
+            pengirim_protokol.cek_dukungan("HTTP"),
+            pengirim_protokol.cek_dukungan("TCP"),
+            pengirim_protokol.cek_dukungan("UDP"),
+            pengirim_protokol.cek_dukungan("ICMP"),
+            pengirim_protokol.cek_dukungan("RANDOM"),
+        ]
     }
 
 
@@ -143,10 +158,13 @@ async def submit_activity(
 ) -> dict[str, Any]:
     _check_guest_rate(request, "/api/activity")
     scenario_name = str(payload.get("scenario") or "")
+    protocol = str(payload.get("protocol") or "HTTP").upper()
+    custom_count = payload.get("batch_count")
+    mode = payload.get("mode")
     token = _session_token(payload, authorization, x_ids_session_token)
     session = _validated_session(token, enforce_cooldown=True)
     try:
-        plan = traffic_generator.build_activity(scenario_name)
+        plan = traffic_generator.build_activity(scenario_name, custom_count=custom_count, mode=mode, protocol=protocol)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -156,13 +174,15 @@ async def submit_activity(
         "interval_seconds": plan["interval_seconds"],
         "payload_sizes": plan["payload_sizes"],
         "scenario_label": plan["scenario_label"],
+        "protocol": protocol,
+        "mode": plan["mode"],
     }
     with default_database.transaction() as connection:
         activity_count = int(connection.execute(
             "SELECT COUNT(*) FROM activities WHERE session_id = ?",
             (session["id"],),
         ).fetchone()[0])
-        if activity_count >= settings.max_activities_per_session:
+        if settings.max_activities_per_session > 0 and activity_count >= settings.max_activities_per_session:
             raise HTTPException(status_code=429, detail="Batas aktivitas untuk sesi ini telah tercapai.")
         connection.execute(
             "INSERT INTO activities "
@@ -178,13 +198,15 @@ async def submit_activity(
                 dumps(metadata),
             ),
         )
-    cooldown_until = session_service.apply_cooldown(session["id"])
+    durasi_burst = max(0, plan["planned_count"] - 1) * plan["interval_seconds"]
+    cooldown_until = session_service.apply_cooldown(session["id"], int(durasi_burst + 0.999) + settings.anomaly_cooldown_seconds)
     telemetry_pipeline.publish_event("activity", {
         "activity_id": activity_id,
         "ticket": session["ticket_code"],
         "scenario": scenario_name,
         "status": "running",
         "planned_request_count": plan["planned_count"],
+        "protocol": protocol,
     })
     return {
         "status": "started",
@@ -196,7 +218,92 @@ async def submit_activity(
         "interval_seconds": plan["interval_seconds"],
         "max_payload_bytes": settings.max_activity_payload_bytes,
         "cooldown_until": cooldown_until,
-        "message": "Aktivitas dikirim sebagai HTTP request lokal; jumlah selesai dihitung dari request yang benar-benar diterima backend.",
+        "protocol": protocol,
+        "mode": plan["mode"],
+        "message": f"Aktivitas {protocol} dikirim ke target lab lokal; jumlah selesai dihitung dari data aktual yang diterima.",
+    }
+
+
+@router.post("/api/activity/probe-protocol")
+async def activity_probe_protocol(
+    request: Request,
+    payload: dict[str, Any],
+    authorization: str | None = Header(default=None),
+    x_ids_session_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _check_guest_rate(request, "/api/activity/probe")
+    token = _session_token(payload, authorization, x_ids_session_token)
+    session = _validated_session(token, enforce_cooldown=False)
+    activity_id = str(payload.get("activity_id") or "")
+    protocol = str(payload.get("protocol") or "TCP").upper()
+    data_text = str(payload.get("payload") or "x" * 64)
+    data_bytes = data_text.encode("utf-8")
+    if len(data_bytes) > settings.max_activity_payload_bytes:
+        raise HTTPException(status_code=413, detail="Ukuran payload melebihi batas konfigurasi.")
+
+    if protocol == "RANDOM":
+        import random
+        protocol = random.choice(["HTTP", "TCP", "UDP"])
+
+    if protocol == "ICMP":
+        hasil = pengirim_protokol.kirim_icmp("127.0.0.1")
+        if not hasil.get("didukung", False):
+            raise HTTPException(status_code=501, detail=hasil.get("pesan", "Protokol ICMP belum didukung di lingkungan ini."))
+        return hasil
+
+    timed_out = False
+    with default_database.transaction() as connection:
+        activity = connection.execute(
+            "SELECT * FROM activities WHERE id = ? AND session_id = ?",
+            (activity_id, session["id"]),
+        ).fetchone()
+        if activity is None:
+            raise HTTPException(status_code=404, detail="Aktivitas tidak ditemukan.")
+        if activity["status"] != "running":
+            raise HTTPException(status_code=409, detail="Aktivitas tidak lagi berjalan.")
+        start_time = datetime.fromisoformat(activity["started_at"].replace("Z", "+00:00"))
+        if (utc_now() - start_time).total_seconds() > settings.max_activity_duration_seconds:
+            connection.execute(
+                "UPDATE activities SET status = 'timed_out', finished_at = ?, error_code = 'duration_exceeded' WHERE id = ?",
+                (to_iso(utc_now()), activity_id),
+            )
+            timed_out = True
+        else:
+            completed = int(activity["request_count"]) + 1
+            planned = int(activity["planned_count"])
+            metadata = json.loads(activity["metadata_json"] or "{}")
+            actual_bytes = int(metadata.get("actual_payload_bytes", 0)) + len(data_bytes)
+            metadata["actual_payload_bytes"] = actual_bytes
+            status = "completed" if completed >= planned else "running"
+            finished_at = to_iso(utc_now()) if status == "completed" else None
+            connection.execute(
+                "UPDATE activities SET request_count = ?, status = ?, finished_at = ?, metadata_json = ? WHERE id = ?",
+                (completed, status, finished_at, dumps(metadata), activity_id),
+            )
+
+    if timed_out:
+        telemetry_pipeline.publish_event("activity", {
+            "activity_id": activity_id,
+            "ticket": session["ticket_code"],
+            "status": "timed_out",
+        })
+        raise HTTPException(status_code=408, detail="Durasi aktivitas melebihi batas.")
+
+    if protocol == "TCP":
+        hasil = pengirim_protokol.kirim_tcp("127.0.0.1", port=settings.guest_port, payload_bytes=data_bytes, session_id=session["id"], activity_id=activity_id)
+    elif protocol == "UDP":
+        hasil = pengirim_protokol.kirim_udp("127.0.0.1", port=settings.guest_port, payload_bytes=data_bytes, session_id=session["id"], activity_id=activity_id)
+    else:
+        hasil = {"status": "sent", "protocol": "HTTP", "bytes_sent": len(data_bytes)}
+
+    return {
+        "status": "accepted",
+        "activity_id": activity_id,
+        "protocol": protocol,
+        "completed_request_count": completed,
+        "planned_request_count": planned,
+        "probe_result": hasil,
+        "activity_status": status,
     }
 
 

@@ -192,6 +192,10 @@ def test_management_websocket_reads_persisted_events(database: Database) -> None
 
             telemetry_pipeline.publish_event("test_event", {"value": "persisted"})
             event = websocket.receive_json()
+            for _ in range(5):
+                if event.get("type") == "test_event":
+                    break
+                event = websocket.receive_json()
             assert event["type"] == "test_event"
             assert event["data"] == {"value": "persisted"}
 

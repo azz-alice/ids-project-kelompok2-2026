@@ -54,14 +54,15 @@
         <div class="baris-grafik">
           <article class="panel panel-grafik">
             <header class="panel-kepala">
-              <h2>Traffic per detik</h2>
+              <h2>Live Traffic Visualizer (BPS · RPS)</h2>
               <div class="panel-kontrol">
-                <span class="kondisi" id="kondisi-traffic" data-state="waiting_for_data">Menunggu traffic</span>
-                <select id="metrik-grafik" aria-label="Jenis data grafik">
-                  <option value="request">Request per detik</option>
-                  <option value="paket">Paket per detik</option>
-                  <option value="byte">Byte per detik</option>
-                </select>
+                <div class="kondisi-widget" id="kondisi-widget" data-state="normal">
+                  <div class="kondisi-baris">
+                    <span class="kondisi-dot" id="kondisi-dot"></span>
+                    <span class="kondisi-status" id="kondisi-traffic">NORMAL</span>
+                  </div>
+                  <span class="kondisi-waktu" id="kondisi-waktu">00:00</span>
+                </div>
               </div>
             </header>
             <div class="grafik-kotak" id="grafik-kotak">
